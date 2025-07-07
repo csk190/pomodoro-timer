@@ -81,16 +81,22 @@
             </div>
         </div>
         
-        <!-- AI Task Breakdown Card -->
+        <!-- AI Task Management Card -->
         <div class="bg-slate-800 rounded-2xl shadow-2xl p-6">
             <h2 class="text-xl font-bold text-center mb-4">오늘의 목표 관리</h2>
             <div class="flex flex-col space-y-3">
                 <input type="text" id="task-input" class="w-full bg-slate-700 text-white placeholder-slate-400 p-3 rounded-lg border-2 border-slate-600 focus:border-red-500 focus:outline-none" placeholder="오늘 달성할 큰 목표를 입력하세요...">
-                <button id="generate-tasks-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-lg flex items-center justify-center space-x-2 transition-colors duration-300">
-                    <span>✨ 목표 세분화하기</span>
-                </button>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button id="generate-tasks-btn" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors duration-300">
+                        <span>✨ 목표 세분화</span>
+                    </button>
+                    <button id="generate-music-btn" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors duration-300">
+                        <span>✨ 집중 음악 추천</span>
+                    </button>
+                </div>
             </div>
             <div id="task-list" class="mt-4 text-slate-300 space-y-2"></div>
+            <div id="music-suggestion" class="mt-4 text-slate-300 space-y-2"></div>
         </div>
 
         <div class="text-center mt-6 text-slate-500 text-sm">
@@ -99,230 +105,253 @@
     </div>
 
     <script>
-        // DOM Elements
-        const timerDisplay = document.getElementById('timer-display');
-        const startPauseBtn = document.getElementById('start-pause-btn');
-        const resetBtn = document.getElementById('reset-btn');
-        const pomodoroTab = document.getElementById('pomodoro-tab');
-        const shortBreakTab = document.getElementById('short-break-tab');
-        const longBreakTab = document.getElementById('long-break-tab');
-        const pomodoroCountDisplay = document.getElementById('pomodoro-count');
-        const taskInput = document.getElementById('task-input');
-        const generateTasksBtn = document.getElementById('generate-tasks-btn');
-        const taskList = document.getElementById('task-list');
-        const suggestionBox = document.getElementById('suggestion-box');
-        const suggestionText = document.getElementById('suggestion-text');
-
-        // Timer settings in seconds
-        const timers = {
-            pomodoro: 25 * 60,
-            shortBreak: 5 * 60,
-            longBreak: 15 * 60,
-        };
-
-        // Timer state
-        let currentMode = 'pomodoro';
-        let timeLeft = timers.pomodoro;
-        let timerId = null;
-        let isRunning = false;
-        let pomodoroCount = 0;
-
-        // Sound for notification - Initialize as null
-        let synth = null;
-        
-        // --- Gemini API Functions ---
-        const API_KEY = ""; // Provided by the environment
-        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
-
-        /**
-         * Generic function to call Gemini API
-         * @param {string} prompt - The prompt to send to the API
-         * @returns {Promise<string|null>} - The generated text or null on error
-         */
-        async function callGemini(prompt) {
-            try {
-                const payload = {
-                    contents: [{ role: "user", parts: [{ text: prompt }] }]
-                };
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`API 요청 실패: ${response.status}`);
-                }
-
-                const result = await response.json();
-                if (result.candidates && result.candidates.length > 0) {
-                    return result.candidates[0].content.parts[0].text;
-                }
-                return "AI로부터 응답을 받지 못했습니다.";
-            } catch (error) {
-                console.error("Gemini API 호출 오류:", error);
-                return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
-            }
-        }
-
-        /**
-         * Generates and displays sub-tasks for a larger goal.
-         */
-        async function generateAndDisplayTasks() {
-            const mainTask = taskInput.value.trim();
-            if (!mainTask) {
-                taskList.innerHTML = '<p class="text-red-400">먼저 목표를 입력해주세요.</p>';
-                return;
-            }
-
-            taskList.innerHTML = '<div class="loader"></div>'; // Show loader
-            generateTasksBtn.disabled = true;
-
-            const prompt = `당신은 생산성 전문가입니다. 다음 목표를 25분 뽀모도로 세션에 적합한 3-4개의 구체적인 하위 작업으로 나누어 주세요. 각 작업은 명확하고 실행 가능해야 합니다. 응답은 한국어로, 번호가 매겨진 목록 형식으로만 제공해주세요. 목표: "${mainTask}"`;
-            
-            const generatedText = await callGemini(prompt);
-
-            if (generatedText) {
-                // Format the text into a nice list
-                const tasks = generatedText.split('\n').filter(line => line.trim() !== '');
-                taskList.innerHTML = tasks.map(task => `<div class="p-2 bg-slate-700/50 rounded-md">${task.replace(/^\d+\.\s*/, '')}</div>`).join('');
-            } else {
-                taskList.innerHTML = '<p class="text-red-400">작업을 생성하는 데 실패했습니다.</p>';
-            }
-            generateTasksBtn.disabled = false;
-        }
-        
-        /**
-         * Gets and displays a suggestion for a break activity.
-         * @param {number} breakDurationInMinutes - The duration of the break.
-         */
-        async function getAndDisplayBreakSuggestion(breakDurationInMinutes) {
-            suggestionText.innerHTML = '<div class="loader !w-4 !h-4 !border-2"></div>'; // smaller loader
-            
-            const prompt = `당신은 건강 및 웰빙 코치입니다. 공부나 일로부터 ${breakDurationInMinutes}분간의 짧은 휴식을 위한 상쾌한 활동을 한 가지만 추천해주세요. 이 활동은 재충전과 집중력 향상에 도움이 되어야 합니다. 응답은 한국어로, 한 문장의 짧은 제안으로만 해주세요.`;
-            
-            const suggestion = await callGemini(prompt);
-            suggestionText.textContent = suggestion || "물을 마시며 잠시 창밖을 보세요.";
-        }
-
-
-        // --- Timer Functions ---
-
-        function updateDisplay() {
-            const minutes = Math.floor(timeLeft / 60);
-            const seconds = timeLeft % 60;
-            timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            document.title = `${timerDisplay.textContent} - 뽀모도로 타이머`;
-        }
-
-        function switchMode(mode) {
-            currentMode = mode;
-            timeLeft = timers[mode];
-            
-            clearInterval(timerId);
-            timerId = null;
-            isRunning = false;
-            startPauseBtn.textContent = '시작';
-
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.getElementById(`${mode.replace('B', '-b')}-tab`).classList.add('active');
-            
-            if (mode === 'pomodoro') {
-                suggestionBox.classList.add('hidden');
-            } else {
-                suggestionBox.classList.remove('hidden');
-                getAndDisplayBreakSuggestion(timers[mode] / 60);
-            }
-            
-            updateDisplay();
-        }
-
-        function startTimer() {
-            if (isRunning) return;
-            isRunning = true;
-            startPauseBtn.textContent = '정지';
-            
-            // Initialize Tone.js on user interaction
-            Tone.start();
-
-            // Initialize the synth on the first start, after the Tone object is guaranteed to be available.
-            if (!synth) {
-                synth = new Tone.Synth().toDestination();
-            }
-
-            timerId = setInterval(() => {
-                timeLeft--;
-                updateDisplay();
-
-                if (timeLeft <= 0) {
-                    clearInterval(timerId);
-                    timerId = null;
-                    isRunning = false;
-                    
-                    // Play notification sound if synth was successfully created
-                    if (synth) {
-                        synth.triggerAttackRelease("C5", "0.5");
-                    }
-
-                    if (currentMode === 'pomodoro') {
-                        pomodoroCount++;
-                        pomodoroCountDisplay.textContent = pomodoroCount;
-                        if (pomodoroCount > 0 && pomodoroCount % 4 === 0) {
-                            switchMode('longBreak');
-                        } else {
-                            switchMode('shortBreak');
-                        }
-                    } else {
-                        switchMode('pomodoro');
-                    }
-                    // Automatically start the next timer after a short delay
-                    setTimeout(() => startTimer(), 1500);
-                }
-            }, 1000);
-        }
-
-        function pauseTimer() {
-            if (!isRunning) return;
-            isRunning = false;
-            startPauseBtn.textContent = '계속';
-            clearInterval(timerId);
-            timerId = null;
-        }
-
-        function resetTimer() {
-            clearInterval(timerId);
-            timerId = null;
-            isRunning = false;
-            timeLeft = timers[currentMode];
-            startPauseBtn.textContent = '시작';
-            updateDisplay();
-        }
-
-        // --- Event Listeners ---
-
-        startPauseBtn.addEventListener('click', () => {
-            if (isRunning) {
-                pauseTimer();
-            } else {
-                startTimer();
-            }
-        });
-
-        resetBtn.addEventListener('click', resetTimer);
-
-        pomodoroTab.addEventListener('click', () => switchMode('pomodoro'));
-        shortBreakTab.addEventListener('click', () => switchMode('shortBreak'));
-        longBreakTab.addEventListener('click', () => switchMode('longBreak'));
-        
-        generateTasksBtn.addEventListener('click', generateAndDisplayTasks);
-        taskInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                generateAndDisplayTasks();
-            }
-        });
-
-        // --- Initial Setup ---
+        // Wrap all script logic in window.onload to ensure external scripts like Tone.js are loaded.
         window.onload = () => {
+            // DOM Elements
+            const timerDisplay = document.getElementById('timer-display');
+            const startPauseBtn = document.getElementById('start-pause-btn');
+            const resetBtn = document.getElementById('reset-btn');
+            const pomodoroTab = document.getElementById('pomodoro-tab');
+            const shortBreakTab = document.getElementById('short-break-tab');
+            const longBreakTab = document.getElementById('long-break-tab');
+            const pomodoroCountDisplay = document.getElementById('pomodoro-count');
+            const taskInput = document.getElementById('task-input');
+            const generateTasksBtn = document.getElementById('generate-tasks-btn');
+            const generateMusicBtn = document.getElementById('generate-music-btn');
+            const taskList = document.getElementById('task-list');
+            const musicSuggestion = document.getElementById('music-suggestion');
+            const suggestionBox = document.getElementById('suggestion-box');
+            const suggestionText = document.getElementById('suggestion-text');
+
+            // Timer settings in seconds
+            const timers = {
+                pomodoro: 25 * 60,
+                shortBreak: 5 * 60,
+                longBreak: 15 * 60,
+            };
+
+            // Timer state
+            let currentMode = 'pomodoro';
+            let timeLeft = timers.pomodoro;
+            let timerId = null;
+            let isRunning = false;
+            let pomodoroCount = 0;
+
+            // Sound for notification - Initialize as null
+            let synth = null;
+            
+            // --- Gemini API Functions ---
+            const API_KEY = ""; // Provided by the environment
+            const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${API_KEY}`;
+
+            async function callGemini(prompt) {
+                try {
+                    const payload = {
+                        contents: [{ role: "user", parts: [{ text: prompt }] }]
+                    };
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API 요청 실패: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts) {
+                        return result.candidates[0].content.parts[0].text;
+                    }
+                    return "AI로부터 응답을 받지 못했습니다.";
+                } catch (error) {
+                    console.error("Gemini API 호출 오류:", error);
+                    return "오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+                }
+            }
+
+            async function generateAndDisplayTasks() {
+                const mainTask = taskInput.value.trim();
+                if (!mainTask) {
+                    taskList.innerHTML = '<p class="text-red-400">먼저 목표를 입력해주세요.</p>';
+                    return;
+                }
+
+                taskList.innerHTML = '<div class="loader"></div>';
+                musicSuggestion.innerHTML = ''; // Clear music suggestion
+                generateTasksBtn.disabled = true;
+                generateMusicBtn.disabled = true;
+
+                const prompt = `당신은 생산성 전문가입니다. 다음 목표를 25분 뽀모도로 세션에 적합한 3-4개의 구체적인 하위 작업으로 나누어 주세요. 각 작업은 명확하고 실행 가능해야 합니다. 응답은 한국어로, 번호가 매겨진 목록 형식으로만 제공해주세요. 목표: "${mainTask}"`;
+                
+                const generatedText = await callGemini(prompt);
+
+                if (generatedText) {
+                    const tasks = generatedText.split('\n').filter(line => line.trim() !== '' && !line.includes("AI로부터"));
+                    taskList.innerHTML = tasks.map(task => `<div class="p-2 bg-slate-700/50 rounded-md">${task.replace(/^\d+\.\s*/, '')}</div>`).join('');
+                } else {
+                    taskList.innerHTML = '<p class="text-red-400">작업을 생성하는 데 실패했습니다.</p>';
+                }
+                generateTasksBtn.disabled = false;
+                generateMusicBtn.disabled = false;
+            }
+
+            async function getAndDisplayMusicSuggestion() {
+                const mainTask = taskInput.value.trim();
+                if (!mainTask) {
+                    musicSuggestion.innerHTML = '<p class="text-sky-400">음악을 추천받으려면 먼저 목표를 입력해주세요.</p>';
+                    return;
+                }
+
+                musicSuggestion.innerHTML = '<div class="loader"></div>';
+                taskList.innerHTML = ''; // Clear task list
+                generateTasksBtn.disabled = true;
+                generateMusicBtn.disabled = true;
+
+                const prompt = `당신은 생산성 및 음악 큐레이터입니다. 사용자가 집중할 수 있도록 도와주는 것이 당신의 임무입니다. 다음 목표에 집중하기 좋은 음악 장르나 유튜브 검색어를 추천해주세요. 응답은 한국어로, "추천 장르: [장르]"와 "유튜브 검색어: [검색어]" 형식으로 간결하게 제공해주세요. 목표: "${mainTask}"`;
+
+                const generatedText = await callGemini(prompt);
+                
+                if (generatedText) {
+                     musicSuggestion.innerHTML = `<div class="p-3 bg-slate-700/50 rounded-md whitespace-pre-wrap">${generatedText}</div>`;
+                } else {
+                     musicSuggestion.innerHTML = '<p class="text-red-400">음악 추천을 생성하는 데 실패했습니다.</p>';
+                }
+
+                generateTasksBtn.disabled = false;
+                generateMusicBtn.disabled = false;
+            }
+            
+            async function getAndDisplayBreakSuggestion(breakDurationInMinutes) {
+                suggestionText.innerHTML = '<div class="loader !w-4 !h-4 !border-2"></div>';
+                
+                const prompt = `당신은 건강 및 웰빙 코치입니다. 공부나 일로부터 ${breakDurationInMinutes}분간의 짧은 휴식을 위한 상쾌한 활동을 한 가지만 추천해주세요. 이 활동은 재충전과 집중력 향상에 도움이 되어야 합니다. 응답은 한국어로, 한 문장의 짧은 제안으로만 해주세요.`;
+                
+                const suggestion = await callGemini(prompt);
+                suggestionText.textContent = suggestion || "물을 마시며 잠시 창밖을 보세요.";
+            }
+
+
+            // --- Timer Functions ---
+
+            function updateDisplay() {
+                const minutes = Math.floor(timeLeft / 60);
+                const seconds = timeLeft % 60;
+                timerDisplay.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                document.title = `${timerDisplay.textContent} - 뽀모도로 타이머`;
+            }
+
+            function switchMode(mode) {
+                currentMode = mode;
+                timeLeft = timers[mode];
+                
+                clearInterval(timerId);
+                timerId = null;
+                isRunning = false;
+                startPauseBtn.textContent = '시작';
+
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.getElementById(`${mode.replace('B', '-b')}-tab`).classList.add('active');
+                
+                if (mode === 'pomodoro') {
+                    suggestionBox.classList.add('hidden');
+                } else {
+                    suggestionBox.classList.remove('hidden');
+                    getAndDisplayBreakSuggestion(timers[mode] / 60);
+                }
+                
+                updateDisplay();
+            }
+
+            function startTimer() {
+                if (isRunning) return;
+                isRunning = true;
+                startPauseBtn.textContent = '정지';
+                
+                // [FIX] Initialize audio context and synth robustly on first user interaction.
+                if (typeof Tone !== 'undefined' && !synth) {
+                    // Tone.start() is async and must be triggered by a user action. It returns a promise.
+                    Tone.start().then(() => {
+                        console.log("Audio context started successfully.");
+                        synth = new Tone.Synth().toDestination();
+                    }).catch(e => {
+                        console.error("Error starting audio context:", e);
+                    });
+                }
+
+                timerId = setInterval(() => {
+                    timeLeft--;
+                    updateDisplay();
+
+                    if (timeLeft <= 0) {
+                        clearInterval(timerId);
+                        timerId = null;
+                        isRunning = false;
+                        
+                        // Play sound only if synth was successfully initialized.
+                        if (synth) {
+                            synth.triggerAttackRelease("C5", "0.5");
+                        }
+
+                        if (currentMode === 'pomodoro') {
+                            pomodoroCount++;
+                            pomodoroCountDisplay.textContent = pomodoroCount;
+                            if (pomodoroCount > 0 && pomodoroCount % 4 === 0) {
+                                switchMode('longBreak');
+                            } else {
+                                switchMode('shortBreak');
+                            }
+                        } else {
+                            switchMode('pomodoro');
+                        }
+                        setTimeout(() => startTimer(), 1500);
+                    }
+                }, 1000);
+            }
+
+            function pauseTimer() {
+                if (!isRunning) return;
+                isRunning = false;
+                startPauseBtn.textContent = '계속';
+                clearInterval(timerId);
+                timerId = null;
+            }
+
+            function resetTimer() {
+                clearInterval(timerId);
+                timerId = null;
+                isRunning = false;
+                timeLeft = timers[currentMode];
+                startPauseBtn.textContent = '시작';
+                updateDisplay();
+            }
+
+            // --- Event Listeners ---
+
+            startPauseBtn.addEventListener('click', () => {
+                if (isRunning) {
+                    pauseTimer();
+                } else {
+                    startTimer();
+                }
+            });
+
+            resetBtn.addEventListener('click', resetTimer);
+
+            pomodoroTab.addEventListener('click', () => switchMode('pomodoro'));
+            shortBreakTab.addEventListener('click', () => switchMode('shortBreak'));
+            longBreakTab.addEventListener('click', () => switchMode('longBreak'));
+            
+            generateTasksBtn.addEventListener('click', generateAndDisplayTasks);
+            generateMusicBtn.addEventListener('click', getAndDisplayMusicSuggestion);
+
+            taskInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    generateAndDisplayTasks();
+                }
+            });
+
+            // --- Initial Setup ---
             updateDisplay();
         };
     </script>
